@@ -82,7 +82,11 @@ class MapBuilderBridge {
   void RunFinalOptimization();
   bool SerializeState(const std::string& filename,
                       const bool include_unfinished_submaps);
-
+  void GetSubmapCloud(int trajectory_id,
+                      int submap_index,
+                      geometry_msgs::Pose current_pose,
+                      double radius,
+                      sensor_msgs::PointCloud2* output_cloud);
   void HandleSubmapQuery(
       cartographer_ros_msgs::SubmapQuery::Request& request,
       cartographer_ros_msgs::SubmapQuery::Response& response);

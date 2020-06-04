@@ -44,6 +44,18 @@ NodeOptions CreateNodeOptions(
     options.use_pose_extrapolator =
         lua_parameter_dictionary->GetBool("use_pose_extrapolator");
   }
+  if (lua_parameter_dictionary->HasKey("publish_live_submap_cloud")) {
+    options.publish_live_submap_cloud =
+        lua_parameter_dictionary->GetBool("publish_live_submap_cloud");
+  }
+  if (lua_parameter_dictionary->HasKey("live_submap_cloud_radius")) {
+    options.live_submap_cloud_radius =
+        lua_parameter_dictionary->GetDouble("live_submap_cloud_radius");
+  }
+  if (lua_parameter_dictionary->HasKey("live_submap_period_sec")) {
+    options.live_submap_cloud_radius =
+        lua_parameter_dictionary->GetDouble("live_submap_period_sec");
+  }
   return options;
 }
 

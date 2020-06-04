@@ -163,6 +163,11 @@ class Node {
   void PublishTrajectoryNodeList(const ::ros::WallTimerEvent& timer_event);
   void PublishLandmarkPosesList(const ::ros::WallTimerEvent& timer_event);
   void PublishConstraintList(const ::ros::WallTimerEvent& timer_event);
+  void PublishOnlineCloudSubmap(const ::ros::WallTimerEvent& timer_event);
+  void GetCurrentSubmapCloud(const ::cartographer::transform::Rigid3d tracked_pose);
+  void MergeSubmapsCloud(const sensor_msgs::PointCloud2& submap_first, 
+                         const sensor_msgs::PointCloud2& submap_second,
+                         sensor_msgs::PointCloud2* merged_submap);
   bool ValidateTrajectoryOptions(const TrajectoryOptions& options);
   bool ValidateTopicNames(const TrajectoryOptions& options);
   cartographer_ros_msgs::StatusResponse FinishTrajectoryUnderLock(
@@ -185,6 +190,7 @@ class Node {
 
   ::ros::NodeHandle node_handle_;
   ::ros::Publisher submap_list_publisher_;
+  ::ros::Publisher submap_cloud_publisher_;
   ::ros::Publisher trajectory_node_list_publisher_;
   ::ros::Publisher landmark_poses_list_publisher_;
   ::ros::Publisher constraint_list_publisher_;
@@ -217,11 +223,11 @@ class Node {
   std::unordered_map<int, std::vector<Subscriber>> subscribers_;
   std::unordered_set<std::string> subscribed_topics_;
   std::unordered_set<int> trajectories_scheduled_for_finish_;
-
   // We have to keep the timer handles of ::ros::WallTimers around, otherwise
   // they do not fire.
   std::vector<::ros::WallTimer> wall_timers_;
-
+ 
+  ::cartographer::transform::Rigid3d current_pose_in_map_;
   // The timer for publishing local trajectory data (i.e. pose transforms and
   // range data point clouds) is a regular timer which is not triggered when
   // simulation time is standing still. This prevents overflowing the transform

@@ -36,6 +36,11 @@ struct NodeOptions {
   double pose_publish_period_sec;
   double trajectory_publish_period_sec;
   bool use_pose_extrapolator = true;
+  //live 3d submap
+  bool publish_live_submap_cloud = false;
+  double live_submap_cloud_radius = 5;
+  double live_submap_period_sec = 0.1;
+
 };
 
 NodeOptions CreateNodeOptions(

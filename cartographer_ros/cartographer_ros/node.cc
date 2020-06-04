@@ -46,6 +46,9 @@
 #include "sensor_msgs/PointCloud2.h"
 #include "tf2_eigen/tf2_eigen.h"
 #include "visualization_msgs/MarkerArray.h"
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl_conversions/pcl_conversions.h>
 
 namespace cartographer_ros {
 
@@ -104,6 +107,13 @@ Node::Node(
   submap_list_publisher_ =
       node_handle_.advertise<::cartographer_ros_msgs::SubmapList>(
           kSubmapListTopic, kLatestOnlyPublisherQueueSize);
+
+  if (node_options_.publish_live_submap_cloud) {
+    submap_cloud_publisher_ =  
+        node_handle_.advertise<::sensor_msgs::PointCloud2>(
+            kSubmapCloudTopic, kLatestOnlyPublisherQueueSize, true);
+  }
+
   trajectory_node_list_publisher_ =
       node_handle_.advertise<::visualization_msgs::MarkerArray>(
           kTrajectoryNodeListTopic, kLatestOnlyPublisherQueueSize);
@@ -149,6 +159,11 @@ Node::Node(
   wall_timers_.push_back(node_handle_.createWallTimer(
       ::ros::WallDuration(kConstraintPublishPeriodSec),
       &Node::PublishConstraintList, this));
+  if (node_options_.publish_live_submap_cloud) {
+      wall_timers_.push_back(node_handle_.createWallTimer(
+      ::ros::WallDuration(node_options_.live_submap_period_sec),
+      &Node::PublishOnlineCloudSubmap, this));
+  }
 }
 
 Node::~Node() { FinishAllTrajectories(); }
@@ -270,6 +285,9 @@ void Node::PublishLocalTrajectoryData(const ::ros::TimerEvent& timer_event) {
     const Rigid3d tracking_to_map =
         trajectory_data.local_to_map * tracking_to_local;
 
+    //save pose for online submap cloud publisher
+    current_pose_in_map_ = tracking_to_map;
+
     if (trajectory_data.published_to_tracking != nullptr) {
       if (trajectory_data.trajectory_options.provide_odom_frame) {
         std::vector<geometry_msgs::TransformStamped> stamped_transforms;
@@ -326,6 +344,91 @@ void Node::PublishConstraintList(
     absl::MutexLock lock(&mutex_);
     constraint_list_publisher_.publish(map_builder_bridge_.GetConstraintList());
   }
+}
+
+void Node::PublishOnlineCloudSubmap(
+    const ::ros::WallTimerEvent& unused_timer_event) {
+  if (submap_cloud_publisher_.getNumSubscribers() > 0) {
+    absl::MutexLock lock(&mutex_);
+    GetCurrentSubmapCloud(current_pose_in_map_);
+  }
+}
+
+void Node::GetCurrentSubmapCloud(
+    const Rigid3d tracked_pose){
+  // const Rigid3d tracked_pose
+    geometry_msgs::Pose current_pose = ToGeometryMsgPose(tracked_pose);
+    std::map<double, ::cartographer_ros_msgs::SubmapEntry> submapDistances; 
+    
+    for(auto submap : map_builder_bridge_.GetSubmapList().submap){
+      if(!submap.is_frozen)
+        continue;
+
+      double distanceFromOrigin = sqrt(pow(current_pose.position.x - submap.pose.position.x, 2)
+                                       + pow(current_pose.position.y - submap.pose.position.y, 2));
+      
+      submapDistances[distanceFromOrigin] = submap;
+
+    }
+
+    if(submapDistances.empty())
+      return;
+
+    auto closest_submap = submapDistances.begin();
+    
+    // if( current_submap_index_ != closestSubmap->second.submap_index)
+    // {
+    //   current_submap_index_ = closestSubmap->second.submap_index;
+    //   LOG(ERROR) << "closest submap -> " << closestSubmap->second.submap_index 
+    //             << " traj id -> " << closestSubmap->second.trajectory_id 
+    //             << " distance from origin -> " << closestSubmap->first;
+    sensor_msgs::PointCloud2 submap_first, submap_second;
+
+    double cloud_radius = node_options_.live_submap_cloud_radius;
+      
+    map_builder_bridge_.GetSubmapCloud(closest_submap->second.trajectory_id, 
+                                       closest_submap->second.submap_index,
+                                       current_pose,
+                                       cloud_radius,
+                                       &submap_first);
+    ++closest_submap;
+    map_builder_bridge_.GetSubmapCloud(closest_submap->second.trajectory_id, 
+                                       closest_submap->second.submap_index,
+                                       current_pose,
+                                       cloud_radius,
+                                       &submap_second);
+
+    sensor_msgs::PointCloud2 current_cloud_submap;
+    
+    MergeSubmapsCloud(submap_first, submap_second, &current_cloud_submap);
+    
+    submap_cloud_publisher_.publish(current_cloud_submap);    
+    // }    
+}
+
+void Node::MergeSubmapsCloud(const sensor_msgs::PointCloud2& submap_first, 
+                           const sensor_msgs::PointCloud2& submap_second,
+                           sensor_msgs::PointCloud2* merged_submap)
+{ 
+   if(submap_first.width == 0)
+   {
+     *merged_submap = submap_second;
+     return;
+   }
+   else if(submap_second.width == 0)
+   {
+     *merged_submap = submap_first;
+     return;
+   }
+   else
+   {
+     pcl::PointCloud<pcl::PointXYZ> cloud_a, cloud_b, cloud_c;
+     pcl::fromROSMsg(submap_first, cloud_a);
+     pcl::fromROSMsg(submap_second, cloud_b);
+
+     cloud_c = cloud_a + cloud_b;
+     pcl::toROSMsg(cloud_c,*merged_submap);
+   }   
 }
 
 std::set<cartographer::mapping::TrajectoryBuilderInterface::SensorId>
